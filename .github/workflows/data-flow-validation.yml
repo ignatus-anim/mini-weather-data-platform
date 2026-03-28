@@ -20,6 +20,7 @@ jobs:
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB=${{ secrets.POSTGRES_DB }}
           AIRFLOW_UID=50000
+          AIRFLOW_ADMIN_PASSWORD=${{ secrets.AIRFLOW_ADMIN_PASSWORD }}
           AIRFLOW__CORE__EXECUTOR=LocalExecutor
           AIRFLOW__CORE__FERNET_KEY=${{ secrets.AIRFLOW__CORE__FERNET_KEY }}
           AIRFLOW__WEBSERVER__SECRET_KEY=${{ secrets.AIRFLOW__WEBSERVER__SECRET_KEY }}
@@ -68,12 +69,12 @@ jobs:
         run: |
           curl -s -X PATCH http://localhost:8081/api/v1/dags/weather_pipeline \
             -H "Content-Type: application/json" \
-            -u admin:admin \
+            -u admin:${{ secrets.AIRFLOW_ADMIN_PASSWORD }} \
             -d '{"is_paused": false}'
           sleep 5
           curl -s -X POST http://localhost:8081/api/v1/dags/weather_pipeline/dagRuns \
             -H "Content-Type: application/json" \
-            -u admin:admin \
+            -u admin:${{ secrets.AIRFLOW_ADMIN_PASSWORD }} \
             -d '{"dag_run_id": "ci_validation_run"}' | tee dag_trigger.json
           cat dag_trigger.json
 
@@ -81,7 +82,7 @@ jobs:
         run: |
           for i in $(seq 1 30); do
             RESPONSE=$(curl -s http://localhost:8081/api/v1/dags/weather_pipeline/dagRuns/ci_validation_run \
-              -u admin:admin)
+              -u admin:${{ secrets.AIRFLOW_ADMIN_PASSWORD }})
             echo "Response: $RESPONSE"
             STATE=$(echo $RESPONSE | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))" 2>/dev/null)
             echo "Attempt $i — DAG state: $STATE"
