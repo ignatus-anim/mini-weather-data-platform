@@ -48,14 +48,29 @@ jobs:
           sleep 20
           docker compose up airflow-init --exit-code-from airflow-init
           docker compose up -d airflow-webserver airflow-scheduler minio-init
-          echo "Waiting for Airflow webserver to be ready..."
-          sleep 60
+          echo "Waiting for Airflow webserver to start..."
+          sleep 90
 
-      - name: Check Airflow health
-        run: curl -f http://localhost:8081/health || (echo "Airflow not healthy" && exit 1)
-
-      - name: Trigger weather_pipeline DAG
+      - name: Wait for Airflow webserver to be ready
         run: |
+          echo "Waiting for Airflow webserver..."
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s http://localhost:8081/health | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('metadatabase',{}).get('status',''))" 2>/dev/null)
+            echo "Attempt $i — Airflow health: $STATUS"
+            if [ "$STATUS" = "healthy" ]; then
+              echo "Airflow is ready"
+              break
+            fi
+            sleep 10
+          done
+
+      - name: Unpause and trigger weather_pipeline DAG
+        run: |
+          curl -s -X PATCH http://localhost:8081/api/v1/dags/weather_pipeline \
+            -H "Content-Type: application/json" \
+            -u admin:admin \
+            -d '{"is_paused": false}'
+          sleep 5
           curl -s -X POST http://localhost:8081/api/v1/dags/weather_pipeline/dagRuns \
             -H "Content-Type: application/json" \
             -u admin:admin \
@@ -64,9 +79,11 @@ jobs:
 
       - name: Wait for DAG to complete
         run: |
-          for i in $(seq 1 20); do
-            STATE=$(curl -s http://localhost:8081/api/v1/dags/weather_pipeline/dagRuns/ci_validation_run \
-              -u admin:admin | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))")
+          for i in $(seq 1 30); do
+            RESPONSE=$(curl -s http://localhost:8081/api/v1/dags/weather_pipeline/dagRuns/ci_validation_run \
+              -u admin:admin)
+            echo "Response: $RESPONSE"
+            STATE=$(echo $RESPONSE | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))" 2>/dev/null)
             echo "Attempt $i — DAG state: $STATE"
             if [ "$STATE" = "success" ]; then
               echo "DAG completed successfully"
