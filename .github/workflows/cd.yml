@@ -39,6 +39,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Create Airflow directories and set permissions
+        run: |
+          mkdir -p logs plugins dags data
+          sudo chown -R 50000:0 logs plugins dags data
+
       - name: Start core services
         run: |
           docker compose up -d airflow-postgres data-postgres minio

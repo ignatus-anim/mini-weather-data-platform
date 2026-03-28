@@ -37,6 +37,11 @@ jobs:
           MB_DB_PASS=${{ secrets.DATA_POSTGRES_PASSWORD }}
           EOF
 
+      - name: Create Airflow directories and set permissions
+        run: |
+          mkdir -p logs plugins dags data
+          sudo chown -R 50000:0 logs plugins dags data
+
       - name: Start all services
         run: |
           docker compose up -d airflow-postgres data-postgres minio
