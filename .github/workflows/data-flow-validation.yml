@@ -10,29 +10,32 @@ jobs:
     name: Validate MinIO → Airflow → PostgreSQL
     runs-on: ubuntu-latest
 
-    env:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__CORE__FERNET_KEY: 46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLt0nfdstY=
-      AIRFLOW__WEBSERVER__SECRET_KEY: test_secret
-      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin123
-      DATA_POSTGRES_USER: datauser
-      DATA_POSTGRES_PASSWORD: datapassword
-      DATA_POSTGRES_DB: salesdb
-      MB_DB_TYPE: postgres
-      MB_DB_HOST: data-postgres
-      MB_DB_PORT: "5432"
-      MB_DB_DBNAME: salesdb
-      MB_DB_USER: datauser
-      MB_DB_PASS: datapassword
-      AIRFLOW_UID: "50000"
-
     steps:
       - uses: actions/checkout@v4
+
+      - name: Generate .env file
+        run: |
+          cat <<EOF > .env
+          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+          AIRFLOW_UID=50000
+          AIRFLOW__CORE__EXECUTOR=LocalExecutor
+          AIRFLOW__CORE__FERNET_KEY=${{ secrets.AIRFLOW__CORE__FERNET_KEY }}
+          AIRFLOW__WEBSERVER__SECRET_KEY=${{ secrets.AIRFLOW__WEBSERVER__SECRET_KEY }}
+          AIRFLOW__CORE__LOAD_EXAMPLES=False
+          MINIO_ROOT_USER=${{ secrets.MINIO_ROOT_USER }}
+          MINIO_ROOT_PASSWORD=${{ secrets.MINIO_ROOT_PASSWORD }}
+          DATA_POSTGRES_USER=${{ secrets.DATA_POSTGRES_USER }}
+          DATA_POSTGRES_PASSWORD=${{ secrets.DATA_POSTGRES_PASSWORD }}
+          DATA_POSTGRES_DB=${{ secrets.DATA_POSTGRES_DB }}
+          MB_DB_TYPE=postgres
+          MB_DB_HOST=data-postgres
+          MB_DB_PORT=5432
+          MB_DB_DBNAME=${{ secrets.DATA_POSTGRES_DB }}
+          MB_DB_USER=${{ secrets.DATA_POSTGRES_USER }}
+          MB_DB_PASS=${{ secrets.DATA_POSTGRES_PASSWORD }}
+          EOF
 
       - name: Start all services
         run: |
@@ -44,8 +47,7 @@ jobs:
           sleep 60
 
       - name: Check Airflow health
-        run: |
-          curl -f http://localhost:8081/health || (echo "Airflow not healthy" && exit 1)
+        run: curl -f http://localhost:8081/health || (echo "Airflow not healthy" && exit 1)
 
       - name: Trigger weather_pipeline DAG
         run: |
@@ -57,7 +59,6 @@ jobs:
 
       - name: Wait for DAG to complete
         run: |
-          echo "Waiting for DAG run to finish..."
           for i in $(seq 1 20); do
             STATE=$(curl -s http://localhost:8081/api/v1/dags/weather_pipeline/dagRuns/ci_validation_run \
               -u admin:admin | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))")
@@ -76,8 +77,8 @@ jobs:
 
       - name: Validate MinIO has CSV file
         run: |
-          docker run --rm --network module10_platform-net --entrypoint /bin/sh minio/mc -c "
-            mc alias set local http://minio:9000 minioadmin minioadmin123 &&
+          docker run --rm --network mini-weather-data-platform_platform-net --entrypoint /bin/sh minio/mc -c "
+            mc alias set local http://minio:9000 ${{ secrets.MINIO_ROOT_USER }} ${{ secrets.MINIO_ROOT_PASSWORD }} &&
             COUNT=\$(mc ls local/raw-data | wc -l) &&
             echo \"Files in raw-data: \$COUNT\" &&
             [ \$COUNT -gt 0 ] || exit 1
@@ -85,7 +86,7 @@ jobs:
 
       - name: Validate PostgreSQL has records
         run: |
-          COUNT=$(docker exec data-postgres psql -U datauser -d salesdb -t -c "SELECT COUNT(*) FROM weather_readings;")
+          COUNT=$(docker exec data-postgres psql -U ${{ secrets.DATA_POSTGRES_USER }} -d ${{ secrets.DATA_POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM weather_readings;" | tr -d ' ')
           echo "Records in weather_readings: $COUNT"
           [ "$COUNT" -gt 0 ] || (echo "No records found in PostgreSQL" && exit 1)
 

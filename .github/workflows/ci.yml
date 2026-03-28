@@ -48,30 +48,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Generate .env file
+        run: |
+          cat <<EOF > .env
+          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+          AIRFLOW_UID=50000
+          AIRFLOW__CORE__EXECUTOR=LocalExecutor
+          AIRFLOW__CORE__FERNET_KEY=${{ secrets.AIRFLOW__CORE__FERNET_KEY }}
+          AIRFLOW__WEBSERVER__SECRET_KEY=${{ secrets.AIRFLOW__WEBSERVER__SECRET_KEY }}
+          AIRFLOW__CORE__LOAD_EXAMPLES=False
+          MINIO_ROOT_USER=${{ secrets.MINIO_ROOT_USER }}
+          MINIO_ROOT_PASSWORD=${{ secrets.MINIO_ROOT_PASSWORD }}
+          DATA_POSTGRES_USER=${{ secrets.DATA_POSTGRES_USER }}
+          DATA_POSTGRES_PASSWORD=${{ secrets.DATA_POSTGRES_PASSWORD }}
+          DATA_POSTGRES_DB=${{ secrets.DATA_POSTGRES_DB }}
+          MB_DB_TYPE=postgres
+          MB_DB_HOST=data-postgres
+          MB_DB_PORT=5432
+          MB_DB_DBNAME=${{ secrets.DATA_POSTGRES_DB }}
+          MB_DB_USER=${{ secrets.DATA_POSTGRES_USER }}
+          MB_DB_PASS=${{ secrets.DATA_POSTGRES_PASSWORD }}
+          EOF
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Airflow image (smoke test)
-        run: |
-          docker compose config
-          docker compose pull --quiet airflow-webserver
-        env:
-          POSTGRES_USER: airflow
-          POSTGRES_PASSWORD: airflow
-          POSTGRES_DB: airflow
-          AIRFLOW__CORE__EXECUTOR: LocalExecutor
-          AIRFLOW__CORE__FERNET_KEY: 46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLt0nfdstY=
-          AIRFLOW__WEBSERVER__SECRET_KEY: test_secret
-          AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin123
-          DATA_POSTGRES_USER: datauser
-          DATA_POSTGRES_PASSWORD: datapassword
-          DATA_POSTGRES_DB: salesdb
-          MB_DB_TYPE: postgres
-          MB_DB_HOST: data-postgres
-          MB_DB_PORT: "5432"
-          MB_DB_DBNAME: salesdb
-          MB_DB_USER: datauser
-          MB_DB_PASS: datapassword
-          AIRFLOW_UID: "50000"
+      - name: Validate docker compose config
+        run: docker compose config
