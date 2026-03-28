@@ -1,0 +1,94 @@
+name: Data Flow Validation
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  validate-data-flow:
+    name: Validate MinIO → Airflow → PostgreSQL
+    runs-on: ubuntu-latest
+
+    env:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__FERNET_KEY: 46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLt0nfdstY=
+      AIRFLOW__WEBSERVER__SECRET_KEY: test_secret
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+      DATA_POSTGRES_USER: datauser
+      DATA_POSTGRES_PASSWORD: datapassword
+      DATA_POSTGRES_DB: salesdb
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: data-postgres
+      MB_DB_PORT: "5432"
+      MB_DB_DBNAME: salesdb
+      MB_DB_USER: datauser
+      MB_DB_PASS: datapassword
+      AIRFLOW_UID: "50000"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start all services
+        run: |
+          docker compose up -d airflow-postgres data-postgres minio
+          sleep 20
+          docker compose up airflow-init --exit-code-from airflow-init
+          docker compose up -d airflow-webserver airflow-scheduler minio-init
+          echo "Waiting for Airflow webserver to be ready..."
+          sleep 60
+
+      - name: Check Airflow health
+        run: |
+          curl -f http://localhost:8081/health || (echo "Airflow not healthy" && exit 1)
+
+      - name: Trigger weather_pipeline DAG
+        run: |
+          curl -s -X POST http://localhost:8081/api/v1/dags/weather_pipeline/dagRuns \
+            -H "Content-Type: application/json" \
+            -u admin:admin \
+            -d '{"dag_run_id": "ci_validation_run"}' | tee dag_trigger.json
+          cat dag_trigger.json
+
+      - name: Wait for DAG to complete
+        run: |
+          echo "Waiting for DAG run to finish..."
+          for i in $(seq 1 20); do
+            STATE=$(curl -s http://localhost:8081/api/v1/dags/weather_pipeline/dagRuns/ci_validation_run \
+              -u admin:admin | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))")
+            echo "Attempt $i — DAG state: $STATE"
+            if [ "$STATE" = "success" ]; then
+              echo "DAG completed successfully"
+              exit 0
+            elif [ "$STATE" = "failed" ]; then
+              echo "DAG failed"
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "DAG did not complete in time"
+          exit 1
+
+      - name: Validate MinIO has CSV file
+        run: |
+          docker run --rm --network module10_platform-net --entrypoint /bin/sh minio/mc -c "
+            mc alias set local http://minio:9000 minioadmin minioadmin123 &&
+            COUNT=\$(mc ls local/raw-data | wc -l) &&
+            echo \"Files in raw-data: \$COUNT\" &&
+            [ \$COUNT -gt 0 ] || exit 1
+          "
+
+      - name: Validate PostgreSQL has records
+        run: |
+          COUNT=$(docker exec data-postgres psql -U datauser -d salesdb -t -c "SELECT COUNT(*) FROM weather_readings;")
+          echo "Records in weather_readings: $COUNT"
+          [ "$COUNT" -gt 0 ] || (echo "No records found in PostgreSQL" && exit 1)
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

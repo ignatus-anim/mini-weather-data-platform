@@ -1,0 +1,64 @@
+name: CD — Deploy to Test Environment
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy containers
+    runs-on: ubuntu-latest
+
+    env:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__FERNET_KEY: 46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLt0nfdstY=
+      AIRFLOW__WEBSERVER__SECRET_KEY: test_secret
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+      DATA_POSTGRES_USER: datauser
+      DATA_POSTGRES_PASSWORD: datapassword
+      DATA_POSTGRES_DB: salesdb
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: data-postgres
+      MB_DB_PORT: "5432"
+      MB_DB_DBNAME: salesdb
+      MB_DB_USER: datauser
+      MB_DB_PASS: datapassword
+      AIRFLOW_UID: "50000"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start core services
+        run: |
+          docker compose up -d airflow-postgres data-postgres minio
+          sleep 20
+
+      - name: Wait for databases to be healthy
+        run: |
+          docker compose ps
+          docker inspect --format='{{.State.Health.Status}}' airflow-postgres
+          docker inspect --format='{{.State.Health.Status}}' data-postgres
+
+      - name: Run airflow-init
+        run: |
+          docker compose up airflow-init --exit-code-from airflow-init
+
+      - name: Start remaining services
+        run: |
+          docker compose up -d airflow-webserver airflow-scheduler minio-init
+          sleep 30
+
+      - name: Verify all containers are running
+        run: docker compose ps
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
