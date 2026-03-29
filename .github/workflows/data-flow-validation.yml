@@ -25,6 +25,7 @@ jobs:
           AIRFLOW__CORE__FERNET_KEY=${{ secrets.AIRFLOW__CORE__FERNET_KEY }}
           AIRFLOW__WEBSERVER__SECRET_KEY=${{ secrets.AIRFLOW__WEBSERVER__SECRET_KEY }}
           AIRFLOW__CORE__LOAD_EXAMPLES=False
+          AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
           MINIO_ROOT_USER=${{ secrets.MINIO_ROOT_USER }}
           MINIO_ROOT_PASSWORD=${{ secrets.MINIO_ROOT_PASSWORD }}
           DATA_POSTGRES_USER=${{ secrets.DATA_POSTGRES_USER }}

@@ -9,6 +9,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
     AIRFLOW__CORE__LOAD_EXAMPLES: ${AIRFLOW__CORE__LOAD_EXAMPLES}
     AIRFLOW_CONN_MINIO_DEFAULT: s3://minioadmin:minioadmin123@minio:9000?endpoint_url=http://minio:9000
+    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
